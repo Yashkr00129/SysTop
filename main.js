@@ -1,71 +1,75 @@
-const { app, BrowserWindow, Menu } = require('electron')
-const log = require('electron-log')
+const { app, BrowserWindow, Menu, ipcMain, Tray } = require("electron");
+const log = require("electron-log");
+const Store = require("./Store.js");
+const path = require("path");
+const MainWindow = require("./MainWindow.js");
+const createMainMenu = require("./menu/mainMenu");
+const AppTray = require("./Tray.js");
 
 // Set env
-process.env.NODE_ENV = 'development'
+process.env.NODE_ENV = "production";
 
-const isDev = process.env.NODE_ENV !== 'production' ? true : false
-const isMac = process.platform === 'darwin' ? true : false
+// Check Platform
+const isDev = process.env.NODE_ENV !== "production";
+const isMac = process.platform === "darwin";
 
-let mainWindow
+// Init store and defaults
+const store = new Store({
+  configName: "user-settings",
+  defaults: {
+    settings: {
+      cpuOverLoad: 80,
+      alertFrequency: 5,
+    },
+  },
+});
+
+let mainWindow;
+let tray;
 
 function createMainWindow() {
-  mainWindow = new BrowserWindow({
-    title: 'APP NAME',
-    width: isDev ? 800 : 500,
-    height: 600,
-    icon: './assets/icons/icon.png',
-    resizable: isDev ? true : false,
-    backgroundColor: 'white',
-    webPreferences: {
-      nodeIntegration: true,
-    },
-  })
-
-  if (isDev) {
-    mainWindow.webContents.openDevTools()
-  }
-
-  mainWindow.loadFile('./app/index.html')
+  mainWindow = new MainWindow("./app/index.html", isDev);
 }
 
-app.on('ready', () => {
-  createMainWindow()
+app.on("ready", () => {
+  createMainWindow();
 
-  const mainMenu = Menu.buildFromTemplate(menu)
-  Menu.setApplicationMenu(mainMenu)
-})
+  mainWindow.webContents.on("dom-ready", () => {
+    mainWindow.webContents.send("settings:get", store.get("settings"));
+    console.log(store.get("settings"));
+  });
 
-const menu = [
-  ...(isMac ? [{ role: 'appMenu' }] : []),
-  {
-    role: 'fileMenu',
-  },
-  ...(isDev
-    ? [
-        {
-          label: 'Developer',
-          submenu: [
-            { role: 'reload' },
-            { role: 'forcereload' },
-            { type: 'separator' },
-            { role: 'toggledevtools' },
-          ],
-        },
-      ]
-    : []),
-]
+  mainWindow.on("close", (e) => {
+    if (!app.isQuiting) {
+      e.preventDefault();
+      mainWindow.hide();
+    }
+    return true;
+  });
 
-app.on('window-all-closed', () => {
+  const icon = path.join(__dirname, "assets", "icons", "tray_icon.png");
+
+  tray = new AppTray(icon, { mainWindow });
+  Menu.setApplicationMenu(createMainMenu(isDev, isMac));
+});
+
+// Set settings
+ipcMain.on("settings:set", (e, value) => {
+  console.log(value);
+  store.set("settings", value);
+  mainWindow.webContents.send("settings:get", store.get("settings"));
+});
+
+app.on("window-all-closed", () => {
   if (!isMac) {
-    app.quit()
+    app.quit();
   }
-})
+});
 
-app.on('activate', () => {
+app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createMainWindow()
+    createMainWindow();
   }
-})
+});
 
-app.allowRendererProcessReuse = true
+app.allowRendererProcessReuse = true;
